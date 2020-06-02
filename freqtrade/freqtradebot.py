@@ -421,8 +421,8 @@ class FreqtradeBot:
 
         # running get_signal on historical data fetched
         (buy, sell) = self.strategy.get_signal(
-            pair, self.strategy.ticker_interval,
-            self.dataprovider.ohlcv(pair, self.strategy.ticker_interval))
+            pair, self.strategy.timeframe,
+            self.dataprovider.ohlcv(pair, self.strategy.timeframe))
 
         if buy and not sell:
             stake_amount = self.get_trade_stake_amount(pair)
@@ -698,8 +698,8 @@ class FreqtradeBot:
         if (config_ask_strategy.get('use_sell_signal', True) or
                 config_ask_strategy.get('ignore_roi_if_buy_signal', False)):
             (buy, sell) = self.strategy.get_signal(
-                trade.pair, self.strategy.ticker_interval,
-                self.dataprovider.ohlcv(trade.pair, self.strategy.ticker_interval))
+                trade.pair, self.strategy.timeframe,
+                self.dataprovider.ohlcv(trade.pair, self.strategy.timeframe))
 
         if config_ask_strategy.get('use_order_book', False):
             order_book_min = config_ask_strategy.get('order_book_min', 1)
