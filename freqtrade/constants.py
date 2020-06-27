@@ -22,7 +22,8 @@ ORDERBOOK_SIDES = ['ask', 'bid']
 ORDERTYPE_POSSIBILITIES = ['limit', 'market']
 ORDERTIF_POSSIBILITIES = ['gtc', 'fok', 'ioc']
 AVAILABLE_PAIRLISTS = ['StaticPairList', 'VolumePairList',
-                       'PrecisionFilter', 'PriceFilter', 'ShuffleFilter', 'SpreadFilter']
+                       'AgeFilter', 'PrecisionFilter', 'PriceFilter',
+                       'ShuffleFilter', 'SpreadFilter']
 AVAILABLE_DATAHANDLERS = ['json', 'jsongz']
 DRY_RUN_WALLET = 1000
 MATH_CLOSE_PREC = 1e-14  # Precision used for float comparisons
@@ -87,10 +88,6 @@ CONF_SCHEMA = {
         'amend_last_stake_amount': {'type': 'boolean', 'default': False},
         'last_stake_amount_min_ratio': {
             'type': 'number', 'minimum': 0.0, 'maximum': 1.0, 'default': 0.5
-        },
-        'stop_buy_at_max_drawdown': {'type': 'boolean', 'default': False},
-        'max_drawdown_ratio': {
-            'type': 'number', 'minimum': 0.0, 'maximum': 1.0, 'default': 0.85
         },
         'fiat_display_currency': {'type': 'string', 'enum': SUPPORTED_FIAT},
         'dry_run': {'type': 'boolean'},
@@ -225,6 +222,8 @@ CONF_SCHEMA = {
                 },
                 'username': {'type': 'string'},
                 'password': {'type': 'string'},
+                'jwt_secret_key': {'type': 'string'},
+                'CORS_origins': {'type': 'array', 'items': {'type': 'string'}},
                 'verbosity': {'type': 'string', 'enum': ['error', 'info']},
             },
             'required': ['enabled', 'listen_ip_address', 'listen_port', 'username', 'password']
