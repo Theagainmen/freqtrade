@@ -4,7 +4,7 @@ Freqtrade is the main module of this bot. It contains the class Freqtrade()
 import copy
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta # added timedelta
 from math import isclose
 from threading import Lock
 from typing import Any, Dict, List, Optional
@@ -24,7 +24,7 @@ from freqtrade.misc import safe_value_fallback
 from freqtrade.pairlist.pairlistmanager import PairListManager
 from freqtrade.persistence import Trade
 from freqtrade.resolvers import ExchangeResolver, StrategyResolver
-from freqtrade.rpc import RPCManager, RPCMessageType
+from freqtrade.rpc import RPC, RPCManager, RPCMessageType
 from freqtrade.state import State
 from freqtrade.strategy.interface import IStrategy, SellType
 from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
@@ -33,7 +33,7 @@ from freqtrade.wallets import Wallets
 logger = logging.getLogger(__name__)
 
 
-class FreqtradeBot:
+class FreqtradeBot(RPC):
     """
     Freqtrade is the main class of the bot.
     This is from here the bot start its logic.
@@ -98,6 +98,7 @@ class FreqtradeBot:
         self.rpc: RPCManager = RPCManager(self)
         # Protect sell-logic from forcesell and viceversa
         self._sell_lock = Lock()
+        self.last_balance_update = datetime.utcnow() - timedelta(seconds=60)
 
     def notify_status(self, msg: str) -> None:
         """
@@ -296,6 +297,42 @@ class FreqtradeBot:
         # Ensure wallets are uptodate.
         self.wallets.update()
 
+        # # CUSTOM CODE BELOW
+        # if self.strategy.get_strategy_name() == 'niels55_secured_test':
+        #     trades_closed = Trade.get_trades([Trade.open_date > datetime.utcnow() - timedelta(hours=1),
+        #                                       Trade.is_open == False,
+        #                                       ]).all()
+        #
+        #     trades_open = Trade.get_trades([Trade.open_date > datetime.utcnow() - timedelta(minutes=30),
+        #                                       Trade.is_open == True,
+        #                                       ]).all()
+        #
+        #     sumprofit_closed = sum(trade.close_profit for trade in trades_closed)
+        #     sumprofit_open = sum(trade.close_profit for trade in trades_open)
+        #
+        #
+        #     max_loss_hours_closed = ((self.config['max_open_trades'] * self.config['stake_amount']) / 100) * \
+        #                      (self.config['stoploss'] * 100 * (1 / 2))
+        #     max_loss_hours_open = ((self.config['max_open_trades'] * self.config['stake_amount']) / 100) * \
+        #                             (self.config['stoploss'] * 100 * (1 / 2))
+        #
+        #     if (sumprofit_closed < max_loss_hours_closed) or (sumprofit_open < max_loss_hours_open):
+        #         if (datetime.utcnow() - self.last_custom_update).total_seconds() >= 60:
+        #             self.last_custom_update = datetime.utcnow()
+        #             msg = {
+        #                 f'type': RPCMessageType.WARNING_NOTIFICATION,
+        #                 f'status': 'STOP BUYING\n'
+        #                 f'Message from freqtradebot.py, within the get_trade_stake_amount() function.\n\n'
+        #                 f'Because CLOSED trades in last hour made a profit of {sumprofit_closed:.2f}.\n'
+        #                 f'This is below: {max_loss_hours_closed:.2f}, stop buying for 10 hours!\n'
+        #                 f'Or because OPEN trades in last 30m made a profit of {sumprofit_open:.2f}.\n'
+        #                 f'This is below: {max_loss_hours_open:.2f}, stop buying for 10 hours!\n',
+        #             }
+        #             # Send the message
+        #             logger.info('CUSTOM: Sending telegram message.')
+        #             self.rpc.send_msg(msg)
+        # # CUSTOM CODE ^^^^
+
         if self.edge:
             stake_amount = self.edge.stake_amount(
                 pair,
@@ -425,6 +462,9 @@ class FreqtradeBot:
             self.dataprovider.ohlcv(pair, self.strategy.timeframe))
 
         if buy and not sell:
+            if self.config['stop_buy_at_max_drawdown']:
+                if self._check_max_drawdown():
+                    return False
             stake_amount = self.get_trade_stake_amount(pair)
             if not stake_amount:
                 logger.debug(f"Stake amount is 0, ignoring possible trade for {pair}.")
@@ -446,6 +486,59 @@ class FreqtradeBot:
             return self.execute_buy(pair, stake_amount)
         else:
             return False
+
+    def _check_max_drawdown(self) -> bool:
+        """
+        Check if the user has hit it's max drawdown ratio
+
+        If max drawdown has been hit, stop buying pairs.
+        User can override this by reloading config
+
+        :return: True if max_drawdawn is exceeded.
+        """
+        # get a config value max_drawdawn_ratio in here
+        # calculate the ratio using stake amount and trade amount
+        # check whether it's been exceeded or not
+        max_drawdown_exceeded = False
+        max_drawdown_ratio = self.config['max_drawdown_ratio']
+        start_wallet_value = self.config['max_open_trades'] * self.config['stake_amount']
+        max_drawdown_wallet_value = start_wallet_value * max_drawdown_ratio
+        current_balance = self.wallets.get_total(self.config['stake_currency'])
+        current_balance_used = self.wallets.get_used(self.config['stake_currency'])
+        current_balance_free = self.wallets.get_free(self.config['stake_currency'])
+
+        logger.info(f"CUSTOM: max_drawdown_ratio: {max_drawdown_ratio}")
+        logger.info(f"CUSTOM: start_wallet_value: {start_wallet_value}")
+        logger.info(f"CUSTOM: max_drawdown_wallet_value: {max_drawdown_wallet_value}")
+        logger.info(f"CUSTOM: Tot balance: {current_balance}")
+        logger.info(f"CUSTOM: Used balance: {current_balance_used}")
+        logger.info(f"CUSTOM: Free balance: {current_balance_free}")
+        logger.info(f"CUSTOM: Used + Free balance: {current_balance_used + current_balance_free}")
+
+        if max_drawdown_wallet_value >= current_balance:
+            max_drawdown_exceeded = True
+            # stopbuy
+            if self.state == State.RUNNING:
+                # Set 'max_open_trades' to 0 to stop buying
+                self.config['max_open_trades'] = 0
+            # send log message
+            logger.warning(f'Max drawdown exceeded: The bot will no longer '
+                           f'perform any buys. It will handle sells gracefully. '
+                           f'Current balance ({current_balance}) is below '
+                           f'the max drawdown wallet value ({max_drawdown_wallet_value})')
+            logger.info(f'Max drawdown exceeded: You may override the stop buy by using '
+                        f'the command  \'/reload_config\' in the Telegram chat')
+            # send telegram message
+            msg = {
+                f'type': RPCMessageType.WARNING_NOTIFICATION,
+                f'status': 'STOP BUYING\n'
+                           f'Max drawdown has been exceeded, the bot will no longer perform '
+                           f'any buys. Sells will be handled gracefully.\n\n'
+                           f'You may use \'/reload_config\' to overwrite this.'
+            }
+            self.rpc.send_msg(msg)
+
+        return max_drawdown_exceeded
 
     def _check_depth_of_market_buy(self, pair: str, conf: Dict) -> bool:
         """

@@ -88,6 +88,10 @@ CONF_SCHEMA = {
         'last_stake_amount_min_ratio': {
             'type': 'number', 'minimum': 0.0, 'maximum': 1.0, 'default': 0.5
         },
+        'stop_buy_at_max_drawdown': {'type': 'boolean', 'default': False},
+        'max_drawdown_ratio': {
+            'type': 'number', 'minimum': 0.0, 'maximum': 1.0, 'default': 0.85
+        },
         'fiat_display_currency': {'type': 'string', 'enum': SUPPORTED_FIAT},
         'dry_run': {'type': 'boolean'},
         'dry_run_wallet': {'type': 'number', 'default': DRY_RUN_WALLET},
